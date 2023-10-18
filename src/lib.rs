@@ -21,12 +21,16 @@ impl Color {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug)]
 pub struct Vertex([f32; 2]);
 
 impl Vertex {
     pub fn new(x: f32, y: f32) -> Self {
         Self([x, y])
+    }
+
+    fn floor(self) -> Self {
+        Self([self.0[0].round(), self.0[1].round()])
     }
 }
 
@@ -49,6 +53,7 @@ impl Mul<Matrix> for Vertex {
 #[derive(Clone)]
 pub struct Matrix([[f32; 2]; 2]);
 
+#[derive(Debug)]
 pub struct Figure(Vec<Vertex>);
 
 impl Figure {
@@ -59,9 +64,9 @@ impl Figure {
     pub fn draw(&self, screen: &mut [u8]) {
         for i in 1..=self.0.len() {
             if i == self.0.len() {
-                Self::line(&self.0[0], &self.0[i - 1], screen);
+                Self::line(&self.0[0].floor(), &self.0[i - 1].floor(), screen);
             } else {
-                Self::line(&self.0[i - 1], &self.0[i], screen);
+                Self::line(&self.0[i - 1].floor(), &self.0[i].floor(), screen);
             }
         }
     }
@@ -113,16 +118,47 @@ impl Figure {
     pub fn scale(&mut self, x: f32, y: f32) {
         let scale = Matrix([[x, 0.], [0., y]]);
 
+        let mut center_x = 0.;
+        let mut center_y = 0.;
+
+        for vertex in &self.0 {
+            center_x += vertex.0[0];
+            center_y += vertex.0[1];
+        }
+
+        center_x /= self.0.len() as f32;
+        center_y /= self.0.len() as f32;
+
         for i in 0..self.0.len() {
-            self.0[i] = self.0[i].clone() * scale.clone();
+            self.0[i] =
+                Vertex::new(self.0[i].0[0] - center_x, self.0[i].0[1] - center_y) * scale.clone();
+
+            self.0[i].0[0] += center_x;
+            self.0[i].0[1] += center_y;
         }
     }
 
-    pub fn rotate(&mut self, angel: f32) {
+    pub fn rotate(&mut self, mut angel: f32) {
+        angel *= std::f32::consts::PI / 180.;
         let scale = Matrix([[angel.cos(), -angel.sin()], [angel.sin(), angel.cos()]]);
 
+        let mut center_x = 0.;
+        let mut center_y = 0.;
+
+        for vertex in &self.0 {
+            center_x += vertex.0[0];
+            center_y += vertex.0[1];
+        }
+
+        center_x /= self.0.len() as f32;
+        center_y /= self.0.len() as f32;
+
         for i in 0..self.0.len() {
-            self.0[i] = self.0[i].clone() * scale.clone();
+            self.0[i] =
+                Vertex::new(self.0[i].0[0] - center_x, self.0[i].0[1] - center_y) * scale.clone();
+
+            self.0[i].0[0] += center_x;
+            self.0[i].0[1] += center_y;
         }
     }
 }

@@ -31,11 +31,12 @@ fn main() {
         Vertex::new(200., 100.),
     ]);
 
-    // square.scale(2., 2.);
+    square.scale(2., 2.);
     square.rotate(45.);
 
     event_loop.run(move |event, _, control_flow| {
         if let Event::RedrawRequested(_) = event {
+            println!("{square:#?}");
             square.draw(pixels.frame_mut());
             if let Err(_) = pixels.render() {
                 *control_flow = ControlFlow::Exit;

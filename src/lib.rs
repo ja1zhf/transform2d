@@ -1,4 +1,4 @@
-use std::ops::Mul;
+use std::ops::{Add, Mul, Sub};
 
 pub const WIDTH: usize = 800;
 pub const HEIGHT: usize = 600;
@@ -21,16 +21,32 @@ impl Color {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct Vertex([f32; 2]);
+#[derive(Clone, Copy)]
+pub struct Vertex([f32; 3]);
 
 impl Vertex {
     pub fn new(x: f32, y: f32) -> Self {
-        Self([x, y])
+        Self([x, y, 1.])
     }
 
-    fn floor(self) -> Self {
-        Self([self.0[0].round(), self.0[1].round()])
+    fn round(self) -> Self {
+        Self([self.0[0].round(), self.0[1].round(), self.0[2]])
+    }
+}
+
+impl Add for Vertex {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        Self([self.0[0] + rhs.0[0], self.0[1] + rhs.0[1], self.0[2]])
+    }
+}
+
+impl Sub for Vertex {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self {
+        Self([self.0[0] - rhs.0[0], self.0[1] - rhs.0[1], self.0[2]])
     }
 }
 
@@ -38,7 +54,7 @@ impl Mul<Matrix> for Vertex {
     type Output = Self;
 
     fn mul(self, rhs: Matrix) -> Self {
-        let mut result = Self([0., 0.]);
+        let mut result = Self([0., 0., 0.]);
 
         for i in 0..self.0.len() {
             for j in 0..rhs.0.len() {
@@ -51,9 +67,8 @@ impl Mul<Matrix> for Vertex {
 }
 
 #[derive(Clone)]
-pub struct Matrix([[f32; 2]; 2]);
+pub struct Matrix([[f32; 3]; 3]);
 
-#[derive(Debug)]
 pub struct Figure(Vec<Vertex>);
 
 impl Figure {
@@ -61,12 +76,36 @@ impl Figure {
         Figure(vertices)
     }
 
+    pub fn push(&mut self, vertex: Vertex) {
+        self.0.push(vertex);
+        self.reposition_vertices();
+    }
+
+    pub fn pop(&mut self) {
+        self.0.pop();
+        self.reposition_vertices();
+    }
+
+    fn reposition_vertices(&mut self) {
+        let n = self.0.len();
+        let radius = 100.0;
+        let center = self.get_center();
+
+        for i in 0..n {
+            let angle = i as f32 * 2.0 * std::f32::consts::PI / n as f32;
+            let x = radius * angle.cos();
+            let y = radius * angle.sin();
+            self.0[i].0[0] = x + center.0[0];
+            self.0[i].0[1] = y + center.0[1];
+        }
+    }
+
     pub fn draw(&self, screen: &mut [u8]) {
         for i in 1..=self.0.len() {
             if i == self.0.len() {
-                Self::line(&self.0[0].floor(), &self.0[i - 1].floor(), screen);
+                Self::line(&self.0[0].round(), &self.0[i - 1].round(), screen);
             } else {
-                Self::line(&self.0[i - 1].floor(), &self.0[i].floor(), screen);
+                Self::line(&self.0[i - 1].round(), &self.0[i].round(), screen);
             }
         }
     }
@@ -101,6 +140,42 @@ impl Figure {
         }
     }
 
+    fn get_center(&self) -> Vertex {
+        let mut result = Vertex::new(0., 0.);
+
+        for vertex in &self.0 {
+            result.0[0] += vertex.0[0];
+            result.0[1] += vertex.0[1];
+        }
+
+        result.0[0] /= self.0.len() as f32;
+        result.0[1] /= self.0.len() as f32;
+
+        result
+    }
+
+    pub fn get_vertex(&self, mouse: (isize, isize)) -> isize {
+        let center = self.get_center();
+        let mut distance = f32::sqrt(
+            f32::powi(mouse.0 as f32 - center.0[0], 2) + f32::powi(mouse.1 as f32 - center.0[1], 2),
+        );
+        let mut result = -1;
+
+        for (i, vertex) in self.0.iter().enumerate() {
+            let dist = f32::sqrt(
+                f32::powi(mouse.0 as f32 - vertex.0[0], 2)
+                    + f32::powi(mouse.1 as f32 - vertex.0[1], 2),
+            );
+
+            if dist < distance {
+                distance = dist;
+                result = i as isize;
+            }
+        }
+
+        result
+    }
+
     fn set_pixel(position: &Vertex, color: Color, screen: &mut [u8]) {
         if position.0[0] < WIDTH as f32
             && position.0[1] < HEIGHT as f32
@@ -116,49 +191,51 @@ impl Figure {
     }
 
     pub fn scale(&mut self, x: f32, y: f32) {
-        let scale = Matrix([[x, 0.], [0., y]]);
+        let scale = Matrix([[x, 0., 0.], [0., y, 0.], [0., 0., 1.]]);
 
-        let mut center_x = 0.;
-        let mut center_y = 0.;
-
-        for vertex in &self.0 {
-            center_x += vertex.0[0];
-            center_y += vertex.0[1];
-        }
-
-        center_x /= self.0.len() as f32;
-        center_y /= self.0.len() as f32;
+        let center = self.get_center();
 
         for i in 0..self.0.len() {
-            self.0[i] =
-                Vertex::new(self.0[i].0[0] - center_x, self.0[i].0[1] - center_y) * scale.clone();
-
-            self.0[i].0[0] += center_x;
-            self.0[i].0[1] += center_y;
+            self.0[i] = (self.0[i] - center) * scale.clone() + center;
         }
     }
 
-    pub fn rotate(&mut self, mut angel: f32) {
-        angel *= std::f32::consts::PI / 180.;
-        let scale = Matrix([[angel.cos(), -angel.sin()], [angel.sin(), angel.cos()]]);
-
-        let mut center_x = 0.;
-        let mut center_y = 0.;
-
-        for vertex in &self.0 {
-            center_x += vertex.0[0];
-            center_y += vertex.0[1];
+    pub fn rotate(&mut self, mut angle: f32, origin: isize) {
+        let mut center = self.get_center();
+        if origin >= 0 {
+            center = self.0[origin as usize]
         }
-
-        center_x /= self.0.len() as f32;
-        center_y /= self.0.len() as f32;
+        angle *= std::f32::consts::PI / 180.;
+        let rotate = Matrix([
+            [angle.cos(), -angle.sin(), 0.],
+            [angle.sin(), angle.cos(), 0.],
+            [0., 0., 1.],
+        ]);
 
         for i in 0..self.0.len() {
-            self.0[i] =
-                Vertex::new(self.0[i].0[0] - center_x, self.0[i].0[1] - center_y) * scale.clone();
+            self.0[i] = (self.0[i] - center) * rotate.clone() + center;
+        }
+    }
 
-            self.0[i].0[0] += center_x;
-            self.0[i].0[1] += center_y;
+    pub fn translate(&mut self, x: f32, y: f32) {
+        let position = Matrix([[1., 0., x], [0., 1., y], [0., 0., 1.]]);
+
+        let center = self.get_center();
+
+        for i in 0..self.0.len() {
+            self.0[i] = (self.0[i] - center) * position.clone() + center;
+        }
+    }
+}
+
+pub fn clear(screen: &mut [u8]) {
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            Figure::set_pixel(
+                &Vertex::new(x as f32, y as f32),
+                Color::new(0, 0, 0, 255),
+                screen,
+            )
         }
     }
 }
